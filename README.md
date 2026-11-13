@@ -37,7 +37,9 @@ The applications are independent. The wizard works without the ramping script.
 
 - Python 3.10 or later; no third-party Python packages required.
 - OrcaSlicer, with a configured multi-toolhead printer. The development baseline is OrcaSlicer 2.4.2.
-- Direct tool-to-filament mapping: T0 = slot 1 through T11 = slot 12.
+- Compatible (and much faster) with OrcaSlicer 2.5
+- Not yet directly compatible with other forks of OrcaSlicer (Snorca, etc), however tower can still be generated if .3mf first opened and saved in Orca... tower generated... new .3mf saved and then re-opened in Snorca.  Have tested this.  Planning to update utility for direct compatibilty with latest Snorca as well.
+- Direct tool-to-filament mapping: T0 = slot 1 through T11 = slot 12.  
 - Plain G-code with Orca feature comments and arc fitting disabled.
 
 The Python tools and launchers target macOS, Windows, and Linux. macOS has dedicated installers; cross-platform operation and printer-specific behavior still need validation on the intended system. The wizard accepts a custom Orca executable location.
