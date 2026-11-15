@@ -4,7 +4,7 @@
 Generates ordinary, filament-assigned objects in a COPY of a saved Orca project.
 It is not a native plugin or a replacement for Orca's tool-change scheduler.
 The audit command verifies exported G-code rather than rewriting machine commands.
-Python 3.10+, standard library only.
+Python 3.10+; generated brims use Shapely.
 """
 from __future__ import annotations
 import argparse, copy, json, math, os, posixpath, re, sys, tempfile, zipfile
@@ -52,18 +52,34 @@ def choose_frame(order,materials,override=None):
     preference=('PPS','PEEK','PEI','PC','ASA','ABS','PETG','PLA','PA')
     return min(candidates,key=lambda s:(next((i for i,k in enumerate(preference) if materials[s].startswith(k)),99),s))
 
+def convex_outline(points):
+    points=sorted(set(points))
+    if len(points)<3:return points
+    def cross(a,b,c):return (b[0]-a[0])*(c[1]-a[1])-(b[1]-a[1])*(c[0]-a[0])
+    sides=[]
+    for seq in (points,reversed(points)):
+        side=[]
+        for point in seq:
+            while len(side)>1 and cross(side[-2],side[-1],point)<=0:side.pop()
+            side.append(point)
+        sides.append(side[:-1])
+    return sides[0]+sides[1]
+
 class ReferenceLayers(dict):
     def __init__(self):
-        super().__init__();self.pickup_layers=[];self.support_tools=set()
+        super().__init__();self.pickup_layers=[];self.support_tools=set();self.extrusion_bounds={};self.first_layer_paths=[];self.layer_hulls={}
 
 
 def reference_layers(path,allowed):
     """Read deposited model/support tools, excluding tower and bed auxiliaries."""
-    layers=ReferenceLayers();layer=None;tool=None;feature=None;relative=False;e=0.;xy=None;pickup=False
+    layers=ReferenceLayers();layer=None;tool=None;feature=None;relative=False;absolute_xyz=True;e=0.;xy=None;pickup=False
+    hull_points=[]
     skipped={'prime tower','wipe tower','skirt','brim','skirt/brim','custom'}
     with open(path,encoding='utf-8') as stream:
         for lineno,line in enumerate(stream,1):
             if re.match(r'\s*;\s*Z\s*:',line,re.IGNORECASE):
+                if layer is not None and hull_points:
+                    layers.layer_hulls[layer]=convex_outline(layers.layer_hulls.get(layer,[])+hull_points);hull_points=[]
                 layer=round(float(line.split(':',1)[1]),5)
                 if not math.isfinite(layer) or layer<=0:raise TowerError('Invalid reference layer Z.')
                 # Feature tags describe modal state and need not repeat at a
@@ -81,22 +97,33 @@ def reference_layers(path,allowed):
             cmd=code.split()[0]
             if cmd=='M83':relative=True;continue
             if cmd=='M82':relative=False;continue
-            if cmd in ('G91','G2','G3'):raise TowerError('Reference requires absolute XY and arc fitting off.')
+            if cmd=='G90':absolute_xyz=True;continue
+            if cmd=='G91':absolute_xyz=False;continue
             args={k:float(v) for k,v in re.findall(r'([XYE])\s*(-?(?:\d+(?:\.\d*)?|\.\d+))',code)}
+            if cmd in ('G2','G3'):
+                if 'E' in args:raise TowerError('Reference requires extrusion arc fitting off.')
+                cmd='G0' # Non-extruding arc travel, including Snapmaker spiral Z lifts.
             if cmd=='G92':
                 if 'X' in args or 'Y' in args:raise TowerError('Reference XY resets are unsupported.')
                 e=args.get('E',e);continue
             if cmd not in ('G0','G1'):continue
+            if not absolute_xyz and ('X' in args or 'Y' in args):raise TowerError('Reference requires absolute XY motion; relative Z-only lifts are supported.')
             old=xy
             if 'X' in args or 'Y' in args:xy=(args.get('X',xy[0] if xy else 0.),args.get('Y',xy[1] if xy else 0.))
             de=args.get('E',0.) if relative else args.get('E',e)-e
             if 'E' in args:e=e+de if relative else args['E']
+            if layer is not None and de>0 and old is not None and xy!=old and feature not in ('prime tower','wipe tower','custom','skirt'):
+                if layer==next(iter(layers)):layers.first_layer_paths.append((old,xy))
+                hull_points.extend((old,xy))
+                extent=layers.extrusion_bounds.setdefault(layer,[old[0],old[1],old[0],old[1]])
+                extent[:]=[min(extent[0],old[0],xy[0]),min(extent[1],old[1],xy[1]),max(extent[2],old[0],xy[0]),max(extent[3],old[1],xy[1])]
             if layer is None or de<=0 or old is None or xy==old or feature in skipped:continue
             if feature is None:raise TowerError(f'Reference extrusion at line {lineno} precedes any FEATURE/TYPE comment. Share the reference G-code so this extrusion can be identified.')
             if tool not in allowed:raise TowerError('Reference extrusion needs an explicit Tn matching the selected filaments.')
             if tool not in layers[layer]:layers[layer].append(tool)
             if 'support' in feature:layers.support_tools.add(tool)
             if pickup:layers.pickup_layers.append(layer);pickup=False
+    if layer is not None and hull_points:layers.layer_hulls[layer]=convex_outline(layers.layer_hulls.get(layer,[])+hull_points)
     if not layers or not any(layers.values()):raise TowerError('No reference layer/tool extrusion found.')
     return layers
 
@@ -180,7 +207,8 @@ def capsule(p,q,height,width=.8):
 def rib_outward_shift(count,lane=LANE,rib=25.):
     """Keep a 1 mm gap between opposing rounded, rotated ribs."""
     box_width=2*WALL+count*lane
-    rib_span=2*((rib/2-3)*math.sqrt(2)+3)
+    radius=min(3.,rib/2-.01)
+    rib_span=2*((rib/2-radius)*math.sqrt(2)+radius)
     center_separation=box_width+2*(rib/2-.4)/math.sqrt(2)
     return max(0.,(rib_span+1.-center_separation)/2)
 
@@ -197,13 +225,14 @@ def geometry(count,height,width=LONG,rib=25.,lane=LANE,runs=3):
     corners=[(bx,by,45),(0,by,135),(0,0,225),(bx,0,315)]
     for x,y,angle in corners:
         a=math.radians(angle); co,si=math.cos(a),math.sin(a)
+        radius=min(3.,rib/2-.01);inner=rib-1.6;inner_radius=min(2.2,inner/2-.01)
         shift_y=rib_outward_shift(count,lane,rib)*(1 if y>0 else -1)
         shift_x=rib_outward_shift(1,width,rib)*(1 if x>0 else -1)
         def transform(u,v):
             u+=rib/2-.4
             return x+u*co-v*si+shift_x,y+u*si+v*co+shift_y
-        frame+=ring(rounded(rib,rib,3),rounded(rib-1.6,rib-1.6,2.2),height,transform)
-        c=rib/2-3+2.6/math.sqrt(2)
+        frame+=ring(rounded(rib,rib,radius),rounded(inner,inner,inner_radius),height,transform)
+        c=rib/2-radius+(radius-.4)/math.sqrt(2)
         ends=[(x+(rib/2-.4-c)*co-v*si+shift_x,y+(rib/2-.4-c)*si+v*co+shift_y) for v in [-c,c]]
         targets=[(bx/2,y),(x,by/2)]
         if math.dist(ends[0],targets[0])>math.dist(ends[1],targets[0]): ends.reverse()
@@ -284,14 +313,38 @@ def affine(s=None):
 def multiply(a,b):return [[sum(a[i][k]*b[k][j] for k in range(4)) for j in range(4)] for i in range(4)]
 def point(a,p):return tuple(sum(a[i][j]*p[j] for j in range(3))+a[i][3] for i in range(3))
 
+def plate_inventory(config,root):
+    """Detect existing tower geometry by actual plate membership, even after Orca saves."""
+    objects={o.get('id'):o for o in config.findall('object')}
+    names={o.get('id'):o.get('name','') for o in root.findall('./'+Q('resources')+'/'+Q('object'))}
+    tower_ids={oid for oid in set(objects)|set(names)
+               if oid in objects and metadata(objects[oid]).get('name','').startswith(PREFIX)}
+    tower_ids.update(oid for oid,name in names.items() if name.startswith(PREFIX))
+    tower_ids.update(oid for oid,obj in objects.items() if any(metadata(part).get('name','').startswith(PREFIX) for part in obj.findall('part')))
+    plates=config.findall('plate');result=[]
+    for i,plate in enumerate(plates or [ET.Element('plate')]):
+        members={metadata(x).get('object_id') for x in plate.findall('model_instance')}
+        if len(plates)<=1:members.update(x.get('objectid') for x in root.findall('./'+Q('build')+'/'+Q('item')))
+        occupied=bool(members & tower_ids)
+        result.append({'number':i+1,'name':metadata(plate).get('plater_name','') or f'Plate {i+1}',
+                       'has_tower':occupied})
+    return result
+
+def manifest_entries(value):
+    return value.get('towers',[]) if 'towers' in value else [value]
+
+def pack_manifests(entries):
+    return entries[0] if len(entries)==1 else {'format_version':4,'towers':entries}
+
 class Project:
-    def __init__(self,path,plate_number=None):
+    def __init__(self,path,plate_number=None,slicer_branch="mainline"):
+        self.feature_keys=("wall_filament","sparse_infill_filament","solid_infill_filament") if slicer_branch=="snapmaker" else FEATURE_KEYS
+        self.slicer_branch=slicer_branch
         with zipfile.ZipFile(path) as z:
             if len(z.namelist())!=len(set(z.namelist())):raise TowerError('Duplicate ZIP entries.')
             self.files={n:z.read(n) for n in z.namelist()}
         for n in (MODEL,SETTINGS,MODEL_SETTINGS):
             if n not in self.files:raise TowerError('Save a full Orca project (.3mf), not just geometry or sliced G-code.')
-        if MANIFEST in self.files:raise TowerError('This project already contains an isolated tower. Start from the original project.')
         self.root=ET.fromstring(self.files[MODEL]);self.settings=json.loads(self.files[SETTINGS]);self.config=ET.fromstring(self.files[MODEL_SETTINGS])
         self.resources=self.root.find(Q('resources'));self.build=self.root.find(Q('build'))
         if self.resources is None or self.build is None:raise TowerError('Missing 3MF resources/build.')
@@ -301,6 +354,16 @@ class Project:
         self.plate_number=plate_number or 1
         if not 1<=self.plate_number<=max(1,len(plates)):raise TowerError('Plate number is outside this project.')
         self.plate=plates[self.plate_number-1] if plates else ET.SubElement(self.config,'plate')
+        self.plate_inventory=plate_inventory(self.config,self.root)
+        if self.plate_inventory[self.plate_number-1]['has_tower']:
+            raise TowerError(f'Plate {self.plate_number} already contains a generated prime tower. Remove it before regenerating.')
+        self.previous_manifests=[]
+        manifest_data=self.files.get(MANIFEST)
+        sidecar=Path(str(path)+'.ipt.json')
+        if manifest_data is None and sidecar.exists():manifest_data=sidecar.read_bytes()
+        if manifest_data:
+            occupied={p['number'] for p in self.plate_inventory if p['has_tower']}
+            self.previous_manifests=[m for m in manifest_entries(json.loads(manifest_data)) if m.get('plate_number',1) in occupied]
         self.plate_offset=[0.,0.]
         if len(plates)>1:
             bed=[tuple(map(float,str(v).split('x'))) for v in self.settings['printable_area']]
@@ -323,7 +386,6 @@ class Project:
                 if (oid,idx) in members and item.get('printable','1')!='0':selected.append(item)
             self.items=selected
         if not self.items:raise TowerError('No printable reference objects.')
-        if any(metadata(o).get('name','').startswith(PREFIX) for o in self.objects.values()):raise TowerError('Remove the previous tower before regenerating.')
         if truth(self.settings.get('single_extruder_multi_material','1')):raise TowerError('Select a multi-toolhead profile; Single Extruder Multi Material must be off.')
         if truth(self.settings.get('spiral_mode','0')):raise TowerError('Spiral vase mode is incompatible.')
         self.world_points=[]
@@ -331,7 +393,7 @@ class Project:
         self.world_points=[(x-self.plate_offset[0],y-self.plate_offset[1],z) for x,y,z in self.world_points]
         if not self.world_points:raise TowerError('Reference has no printable mesh.')
         self.reference_bounds=[min(p[i] for p in self.world_points) for i in range(3)]+[max(p[i] for p in self.world_points) for i in range(3)]
-        if self.reference_bounds[2]<-.01:raise TowerError('Put the reference objects on the bed first.')
+        if self.reference_bounds[5]<=0:raise TowerError('Reference objects have no printable geometry above the build plate.')
 
     def vertices(self,path,oid,matrix,seen):
         key=(path,oid)
@@ -370,7 +432,7 @@ class Project:
                 for part in normal:used.add(int(metadata(part).get('extruder',str(default))) or default)
                 sources=[settings,om]+[metadata(x) for x in parts]
                 for source in sources:
-                    for key in FEATURE_KEYS:
+                    for key in self.feature_keys:
                         value=int(source.get(key,'0') or 0)
                         if value:used.add(value)
                     if truth(source.get('enable_support',settings.get('enable_support','0'))):
@@ -386,7 +448,7 @@ class Project:
         order=sorted(used,key=lambda i:(materials[i]==materials[frame],materials[i],i))
         return order,frame
 
-    def place(self,b,origin=None,clearance=8.):
+    def place(self,b,origin=None,clearance=8.,frame_bounds=None,layer_bounds=None,first_layer=None,tower_height=None,footprints=None,first_paths=None,layer_hulls=None):
         bed=self.settings.get('printable_area',[])
         try:poly=[tuple(map(float,str(x).split('x'))) for x in bed]
         except ValueError:raise TowerError('Invalid printable area.')
@@ -395,10 +457,41 @@ class Project:
         if any(abs(x-minx)>.001 and abs(x-maxx)>.001 or abs(y-miny)>.001 and abs(y-maxy)>.001 for x,y in poly):
             raise TowerError('Only rectangular beds are supported in this version.')
         rb=self.reference_bounds; margin=3.
+        def separated(a,r,gap):
+            return a[2]+gap<=r[0] or a[0]-gap>=r[2] or a[3]+gap<=r[1] or a[1]-gap>=r[3]
+        obstacles=[]
+        if layer_bounds and frame_bounds is not None:
+            # Use deposited model/support/brim paths; the generated brim exists
+            # only on the first layer, not alongside upper model overhangs.
+            for z,extent in layer_bounds.items():
+                if z<=tower_height+.001:
+                    obstacles.append((b if z<=first_layer+.001 else frame_bounds,extent,clearance+.5))
+        else:
+            # Without a reference slice, conservatively include original brims.
+            extra=0.
+            for item in self.items:
+                options=dict(self.settings);obj=self.objects.get(item.get('objectid'))
+                if obj is not None:options.update(metadata(obj))
+                if options.get('brim_type','no_brim') not in ('no_brim','inner_only'):
+                    extra=max(extra,float(options.get('brim_width',0) or 0)+float(options.get('brim_object_gap',0) or 0))
+            obstacles=[(b,[rb[0],rb[1],rb[3],rb[4]],clearance+extra)]
+        shape_obstacles=None
+        if footprints is not None and layer_bounds and first_paths:
+            from shapely.geometry import MultiLineString,box,MultiPoint
+            from shapely.ops import unary_union
+            from shapely.affinity import translate
+            first_obstacle=MultiLineString(first_paths).buffer(clearance+.5)
+            upper=[MultiPoint(layer_hulls[z]).convex_hull if layer_hulls and z in layer_hulls else box(*extent) for z,extent in layer_bounds.items() if first_layer+.001<z<=tower_height+.001]
+            shape_obstacles=[(footprints[1],first_obstacle)]
+            if upper:shape_obstacles.append((footprints[0],unary_union(upper).buffer(clearance+.5)))
         def okay(x,y):
             tb=[x+b[0],y+b[1],x+b[3],y+b[4]]
             if not (minx+margin<=tb[0] and tb[2]<=maxx-margin and miny+margin<=tb[1] and tb[3]<=maxy-margin):return False
-            if not (tb[2]+clearance<=rb[0] or tb[0]-clearance>=rb[3] or tb[3]+clearance<=rb[1] or tb[1]-clearance>=rb[4]):return False
+            if shape_obstacles is not None:
+                if any(translate(shape,x,y).intersects(obstacle) for shape,obstacle in shape_obstacles):return False
+            else:
+                for shape,extent,gap in obstacles:
+                    if not separated([x+shape[0],y+shape[1],x+shape[3],y+shape[4]],extent,gap):return False
             ex=self.settings.get('bed_exclude_area',[])
             if ex:
                 try:ep=[tuple(map(float,str(v).split('x'))) for v in ex]
@@ -414,10 +507,12 @@ class Project:
                 if okay(x,y):return (float(x),float(y))
         raise TowerError('No clear tower position found. Move the reference or supply --origin X Y.')
 
-    def generate(self,output,filaments=None,origin=None,clearance=8.,reference_gcode=None,width=30.,rib_size=25.,purge_volume=5.,support_slot=None,frame_slot=None):
-        width=float(width);rib_size=float(rib_size);purge_volume=float(purge_volume)
-        if not all(map(math.isfinite,(width,rib_size,purge_volume))) or not 10<=width<=200 or not 10<=rib_size<=100 or not 0<purge_volume<=1000:
-            raise TowerError('Tower width must be 10–200 mm, ribs 10–100 mm, and purge volume greater than 0 and at most 1000 mm³.')
+    def generate(self,output,filaments=None,origin=None,clearance=2.,reference_gcode=None,width=30.,rib_size=5.,purge_volume=5.,support_slot=None,frame_slot=None,brim_width=5.):
+        preserved_positions=[(node,'transform',node.get('transform')) for node in self.root.iter() if node.get('transform') is not None]
+        preserved_positions += [(node,'value',node.get('value')) for node in self.config.iter('metadata') if node.get('key') in ('matrix','source_offset_z')]
+        width=float(width);rib_size=float(rib_size);purge_volume=float(purge_volume);brim_width=float(brim_width)
+        if not all(map(math.isfinite,(width,rib_size,purge_volume,brim_width))) or not 10<=width<=200 or not 5<=rib_size<=100 or not 0<purge_volume<=1000 or not 0<=brim_width<=100:
+            raise TowerError('Tower width must be 10–200 mm, ribs 5–100 mm, purge volume greater than 0 and at most 1000 mm³, and brim width 0–100 mm.')
         layers=None
         if reference_gcode:
             types=self.settings.get('filament_type',[])
@@ -467,22 +562,31 @@ class Project:
         lane_width,runs=lane_dimensions(width,purge_volume,min_height)
         frame,lanes=geometry(len(order),height,width,rib_size,lane_width,runs)
         # Frame and its material lane remain distinct volumes.
-        b=bounds(frame);placement=list(b)
-        for axis in (0,1):placement[axis]-=15;placement[axis+3]+=15
-        xy=self.place(placement,origin,clearance)
+        b=bounds(frame)
+        if brim_width>0:
+            from brim_geometry import make_brim
+            frame=frame+make_brim(frame,brim_width,first)
+        placement=bounds(frame)
+        rotation=0
+        # Start at the front corner with the whole brim inside the bed,
+        # then move 5 mm inward on both axes. The user adjusts placement in Orca.
+        bed=[tuple(map(float,str(v).split('x'))) for v in self.settings['printable_area']]
+        xy=(min(x for x,y in bed)+3.-placement[0]+5.,
+            min(y for x,y in bed)+3.-placement[1]+5.)
+        if origin is not None:xy=(origin[0]+5.,origin[1]+5.)
         objid=max([int(x.get('id','0')) for x in self.resources]+[0])+1
         manifest_lanes=[]
         overrides={'wall_loops':'2','sparse_infill_density':'100%',
           'top_shell_layers':'0','bottom_shell_layers':'0',
           'top_shell_thickness':'0','bottom_shell_thickness':'0',
-          'enable_support':'0','brim_type':'outer_only','brim_width':'15','brim_object_gap':'0','ironing_type':'no ironing',
+          'enable_support':'0','brim_type':'no_brim','brim_width':'0','brim_object_gap':'0','ironing_type':'no ironing',
           'flush_into_infill':'0','flush_into_objects':'0','flush_into_support':'0'}
-        name='IPT_ASSEMBLY'
+        name='IPT_ASSEMBLY' if len(self.plate_inventory)==1 else f'IPT_ASSEMBLY_PLATE_{self.plate_number}'
         topid=objid;objid+=1
         top=ET.Element(Q('object'),{'id':str(topid),'type':'model','name':name})
         components=ET.SubElement(top,Q('components'))
         cfg=ET.Element('object',{'id':str(topid)})
-        for key,value in {'name':name,'extruder':str(petg),**overrides,**{key:'0' for key in FEATURE_KEYS}}.items():set_meta(cfg,key,value)
+        for key,value in {'name':name,'extruder':str(petg),**overrides,**({key:'0' for key in self.feature_keys} if self.slicer_branch=='mainline' else {key:str(petg) for key in self.feature_keys})}.items():set_meta(cfg,key,value)
         # Each material part contains all the vertical spans assigned to that
         # tool. This preserves donor assignments inside one movable object.
         material_meshes={slot:[] for slot in order}
@@ -497,18 +601,21 @@ class Project:
                     else:spans.append([owner,lo,hi])
                 for owner,lo,hi in spans:material_meshes[owner]+=lane_slab(lanes[k],height,lo,hi)
             else:material_meshes[slot]+=lanes[k]
+            lane_bounds=[WALL,WALL+k*lane_width,WALL+width,WALL+(k+1)*lane_width]
+            if rotation:lane_bounds=[-lane_bounds[3],lane_bounds[0],-lane_bounds[1],lane_bounds[2]]
             manifest_lanes.append({'filament_slot':slot,'tool':slot-1,'material':materials[slot],
-                'name':lane_name,'bounds':[xy[0]+WALL,xy[1]+WALL+k*lane_width,xy[0]+WALL+width,xy[1]+WALL+(k+1)*lane_width]})
+                'name':lane_name,'bounds':[v+xy[i%2] for i,v in enumerate(lane_bounds)]})
         meshes=[(f'IPT_F{slot:02d}_material',slot,material_meshes[slot]) for slot in order]
         meshes.append(('IPT_'+materials[petg]+'_frame',petg,frame))
         for part_name,slot,triangles in meshes:
             if not triangles:continue
+            if rotation:triangles=[tuple((-y,x,z) for x,y,z in tri) for tri in triangles]
             meshid=objid;objid+=1
             meshobj=ET.SubElement(self.resources,Q('object'),{'id':str(meshid),'type':'model'})
             mesh_xml(meshobj,triangles)
             ET.SubElement(components,Q('component'),{'objectid':str(meshid)})
             part=ET.SubElement(cfg,'part',{'id':str(meshid),'subtype':'normal_part'})
-            for key,value in {'name':part_name,'extruder':str(slot),**{key:str(slot) for key in FEATURE_KEYS}}.items():set_meta(part,key,value)
+            for key,value in {'name':part_name,'extruder':str(slot),**{key:str(slot) for key in self.feature_keys}}.items():set_meta(part,key,value)
             ET.SubElement(part,'mesh_stat',{'face_count':str(len(triangles))})
         self.resources.append(top)
         item=ET.Element(Q('item'),{'objectid':str(topid),'transform':f'1 0 0 0 1 0 0 0 1 {xy[0]+self.plate_offset[0]} {xy[1]+self.plate_offset[1]} 0','printable':'1'})
@@ -531,24 +638,27 @@ class Project:
             for obj in cut.findall('object'):obj.set('id',str(int(obj.get('id'))+1))
             self.files[cut_path]=xml_bytes(cut)
         if len(ranges):self.files[range_path]=xml_bytes(ranges)
-        for key,value in [('print_sequence','by layer'),('print_order','as_obj_list'),('enable_prime_tower','0'),
+        for key,value in [('print_sequence','by layer'),('print_order','as_obj_list'),
                           ('flush_into_objects','0'),('flush_into_infill','0'),('flush_into_support','0'),('exclude_object','1')]:
             self.settings[key]=value
-        for key in ('print_sequence','print_order','enable_prime_tower'):
+        for key in ('print_sequence','print_order'):
             set_meta(self.plate,key,self.settings[key])
+        set_meta(self.plate,'enable_prime_tower','0')
         # Discard stale preview/toolpath references; do not retain old sliced output.
         for child in list(self.plate):
             if child.tag=='metadata' and child.get('key') in ('gcode_file','thumbnail_file','thumbnail_no_light_file','top_file','pick_file','first_layer_print_sequence','other_layers_print_sequence','other_layers_print_sequence_nums'):
                 self.plate.remove(child)
+        if any(node.get(attribute)!=value for node,attribute,value in preserved_positions):
+            raise TowerError('Internal error: an original object position changed while adding the tower.')
         self.files[MODEL]=xml_bytes(self.root);self.files[SETTINGS]=json.dumps(self.settings,indent=2).encode();self.files[MODEL_SETTINGS]=xml_bytes(self.config)
-        manifest={'format_version':3,'assembly_name':'IPT_ASSEMBLY','status':'requires_exported_gcode_audit','geometry':'v10_multimaterial_variable_layers','reference_height':self.reference_bounds[5],
+        manifest={'format_version':3,'assembly_name':name,'status':'requires_exported_gcode_audit','geometry':'v10_multimaterial_variable_layers','reference_height':self.reference_bounds[5],
             'outer_box_dimensions':[width+2*WALL,len(order)*lane_width+2*WALL],
             'width':width,'rib_size':rib_size,'purge_volume':purge_volume,'serpentine_runs':runs,
             'frame_slot':petg,'frame_tool':petg-1,'frame_material':materials[petg],
             'support_slot':support_slot,'detected_support_slots':support_slots,
-            'brim_width':15.,'brim_gap':0.,'first_layer_height':first,
+            'brim_width':brim_width,'brim_gap':0.,'brim_geometry':True,'first_layer_height':first,
             'plate_number':self.plate_number,'plate_offset':self.plate_offset,
-            'tower_height':height,'origin':list(xy),'petg_slot':petg,'petg_tool':petg-1,
+            'placement_rotation':rotation,'placement_clearance':clearance,'tower_height':height,'origin':list(xy),'petg_slot':petg,'petg_tool':petg-1,
             'lane_width':lane_width,'lanes':manifest_lanes,'tower_bounds':[xy[0]+b[0],xy[1]+b[1],xy[0]+b[3],xy[1]+b[4]],
             'every_filament_every_layer':schedule is None,'every_section_every_layer':True,
             'reference_layer_tools':{str(z):tools for z,tools in layers.items()} if layers is not None else None,
@@ -557,7 +667,10 @@ class Project:
             'limitations':['No native plugin API in Orca 2.4.2.','Requires G-code audit before use as prime tower replacement.',
               'A later pickup on the same layer may lack another section pass; audit rejects it.',
               'Tower is ordinary geometry; no automatic adaptive per-pickup volume or scheduling.']}
-        self.files[MANIFEST]=json.dumps(manifest,indent=2).encode()
+        assembly=bounds(frame)
+        manifest['assembly_bounds']=[xy[0]+assembly[0],xy[1]+assembly[1],xy[0]+assembly[3],xy[1]+assembly[4]]
+        registry=pack_manifests(self.previous_manifests+[manifest])
+        self.files[MANIFEST]=json.dumps(registry,indent=2).encode()
         output=Path(output)
         if output.exists():raise TowerError('Output already exists; choose a new filename.')
         sidecar=Path(str(output)+'.ipt.json')
@@ -567,17 +680,21 @@ class Project:
             for name,data in self.files.items():
                 if name.lower().endswith(('.gcode','.gcode.3mf')) or name=='Metadata/slice_info.config':continue
                 z.writestr(name,data)
-        with sidecar.open('x') as stream:json.dump(manifest,stream,indent=2)
+        with sidecar.open('x') as stream:json.dump(registry,stream,indent=2)
         return manifest
 
 
-def load_manifest(path):
+def load_manifest(path,plate_number=None):
     with zipfile.ZipFile(path) as z:
         try:manifest=json.loads(z.read(MANIFEST))
         except KeyError:
             sidecar=Path(str(path)+'.ipt.json')
             if not sidecar.exists():raise TowerError('Project has no isolated tower manifest or companion .3mf.ipt.json file. Use the original utility-generated project, or regenerate from the original reference project with a new output filename.')
             manifest=json.loads(sidecar.read_text())
+        entries=manifest_entries(manifest)
+        if plate_number is not None:entries=[m for m in entries if m.get('plate_number',1)==plate_number]
+        if len(entries)!=1:raise TowerError('Select a plate number with --plate to audit its generated tower.')
+        manifest=entries[0]
         if not manifest.get('assembly_name'):return manifest
         if manifest.get('format_version',0)>=3:
             types=json.loads(z.read(SETTINGS)).get('filament_type',[])
@@ -588,8 +705,14 @@ def load_manifest(path):
         config=ET.fromstring(z.read(MODEL_SETTINGS));root=ET.fromstring(z.read(MODEL))
         objects={o.get('id'):o for o in config.findall('object')}
         ids=[oid for oid,o in objects.items() if metadata(o).get('name')==manifest['assembly_name']]
+        plates=config.findall('plate')
+        plate_index=manifest.get('plate_number',1)-1
+        if len(plates)>1:
+            if not 0<=plate_index<len(plates):raise TowerError('Tower plate no longer exists.')
+            members={metadata(x).get('object_id') for x in plates[plate_index].findall('model_instance')}
+            ids=[oid for oid in ids if oid in members]
         items=[i for i in root.findall('./'+Q('build')+'/'+Q('item')) if i.get('objectid') in ids]
-        if len(ids)!=1 or len(items)!=1:raise TowerError('Keep exactly one IPT_ASSEMBLY object with its original name.')
+        if len(ids)!=1 or len(items)!=1:raise TowerError('Keep exactly one tower assembly on its original plate with its original name.')
         matrix=affine(items[0].get('transform'))
         if any(abs(matrix[i][j]-(1 if i==j else 0))>1e-6 for i in range(3) for j in range(3)):
             raise TowerError('The audit supports moving the assembly in XY, not rotating or scaling it.')
@@ -600,13 +723,14 @@ def load_manifest(path):
         points=[(x-offset[0],y-offset[1],z) for x,y,z in points]
         if not points:raise TowerError('Tower assembly has no geometry.')
         b=[min(p[i] for p in points) for i in range(3)]+[max(p[i] for p in points) for i in range(3)]
-        old=manifest['tower_bounds']
+        old=manifest.get('assembly_bounds',manifest['tower_bounds'])
         if abs(b[3]-b[0]-(old[2]-old[0]))>.01 or abs(b[4]-b[1]-(old[3]-old[1]))>.01 or abs(b[2])>.01 or abs(b[5]-manifest['tower_height'])>.01:
             raise TowerError('Tower dimensions/height changed; regenerate rather than editing its parts.')
         dx,dy=round(b[0]-old[0],5),round(b[1]-old[1],5)
         for lane in manifest['lanes']:
             lane['bounds']=[v+(dx if i%2==0 else dy) for i,v in enumerate(lane['bounds'])]
-        manifest['tower_bounds']=[v+(dx if i%2==0 else dy) for i,v in enumerate(old)]
+        manifest['tower_bounds']=[v+(dx if i%2==0 else dy) for i,v in enumerate(manifest['tower_bounds'])]
+        if 'assembly_bounds' in manifest:manifest['assembly_bounds']=[v+(dx if i%2==0 else dy) for i,v in enumerate(old)]
         manifest['origin']=[manifest['origin'][0]+dx,manifest['origin'][1]+dy]
         return manifest
 
@@ -621,7 +745,6 @@ def audit(gcode,manifest,min_volume=None):
     lanes=manifest['lanes'];allowed={x['tool'] for x in lanes};petg=manifest.get('frame_tool',manifest.get('petg_tool'));tb=manifest['tower_bounds']
     errors=[];warnings=[];layer=None;seen={};layers=set();xy=None;z=0.;tool=None;epos=0.;relative=False;absolute_xyz=True;primed=0.;pending=False
     max_tower_z=0.;checks=0;toolchanges=0;reference_seen={};frame_seen=set()
-    debt={}
     strict=manifest.get('format_version',0)>=3
     first_xy_pending=False;first_extrusion_pending=False;pickup_line=None
     first_xy_checks=0;first_extrusion_checks=0;feature=None
@@ -687,28 +810,27 @@ def audit(gcode,manifest,min_volume=None):
                 if 'X' in args or 'Y' in args:fail(lineno,'XY coordinate reset is unsupported.')
                 continue
             if command in ('G2','G3'):
-                fail(lineno,'Arc moves are not audited; disable arc fitting before export.');continue
+                if 'E' in args:fail(lineno,'Arc moves with extrusion are not audited; disable arc fitting before export.');continue
+                command='G0'
             if command not in ('G0','G1'):continue
-            if not absolute_xyz:fail(lineno,'Relative XYZ motion is unsupported.');continue
+            if not absolute_xyz and ('X' in args or 'Y' in args):fail(lineno,'Relative XY motion is unsupported.');continue
             previous=xy
             if 'X' in args or 'Y' in args:
                 xy=(args.get('X',xy[0] if xy else 0.),args.get('Y',xy[1] if xy else 0.))
                 if first_xy_pending:
                     first_xy_checks+=1;first_xy_pending=False
                     if not inside(xy,destination_bounds()):fail(lineno,f'First XY destination after T{tool} pickup at line {pickup_line} is outside the prime tower.')
-            z=args.get('Z',z)
+            z=args.get('Z',z) if absolute_xyz else z+args.get('Z',0.)
             e=args.get('E',0 if relative else epos);de=e if relative else e-epos
             if 'E' in args:epos=e if not relative else epos+e
-            owed=debt.get(tool,0.);paid=min(max(de,0.),owed)
-            debt[tool]=owed-de if de<0 else max(0.,owed-de)
             if de>0 and previous is not None and xy is not None and math.dist(previous,xy)>1e-7 and first_extrusion_pending:
                 first_extrusion_checks+=1;first_extrusion_pending=False
                 if not (inside(previous,destination_bounds()) and inside(xy,destination_bounds())):
                     fail(lineno,f'First extrusion path after T{tool} pickup at line {pickup_line} is outside the prime tower (model/support or other path first).')
             if de<=0 or previous is None or xy is None or math.dist(previous,xy)<1e-7 or layer is None:continue
             if tool is None:fail(lineno,'Extrusion before an explicit Tn tool selection.');continue
-            volume=max(0.,de-paid)*filament_area(tool)
-            if brim_layer() and feature in ("brim","skirt/brim") and inside(previous,brim_bounds) and inside(xy,brim_bounds):
+            volume=de*filament_area(tool)
+            if brim_layer() and (feature in ("brim","skirt/brim") or (manifest.get("brim_geometry") and not (inside(previous,tb) and inside(xy,tb)))) and inside(previous,brim_bounds) and inside(xy,brim_bounds):
                 if tool!=petg:fail(lineno,"Tower outer brim must use the assigned frame tool.")
                 if any(crosses_interior(previous,xy,lane["bounds"]) for lane in lanes):fail(lineno,"Outer brim crosses a tower section interior.")
                 primed+=volume
@@ -730,12 +852,12 @@ def audit(gcode,manifest,min_volume=None):
                 elif touched and tool!=petg:
                     # Adjacent donor sections may be sliced as one continuous
                     # region. Accept only a rectangle wholly owned by this tool.
-                    groups=[]
-                    for index,lane in sorted(enumerate(lanes),key=lambda pair:pair[1]['bounds'][1]):
+                    groups=[];axis=0 if manifest.get('placement_rotation')==90 else 1;other=1-axis
+                    for index,lane in sorted(enumerate(lanes),key=lambda pair:pair[1]['bounds'][axis]):
                         if expected[index]!=tool:continue
                         b=lane['bounds']
-                        if groups and all(abs(groups[-1][0][a]-b[a])<1e-6 for a in (0,2)) and abs(groups[-1][0][3]-b[1])<1e-6:
-                            groups[-1][0][3]=b[3];groups[-1][1].append(index)
+                        if groups and all(abs(groups[-1][0][a]-b[a])<1e-6 for a in (other,other+2)) and abs(groups[-1][0][axis+2]-b[axis])<1e-6:
+                            groups[-1][0][axis+2]=b[axis+2];groups[-1][1].append(index)
                         else:groups.append((list(b),[index]))
                     group=next((g for g in groups if inside(previous,g[0]) and inside(xy,g[0])),None)
                     if group:
@@ -788,23 +910,24 @@ def main(argv=None):
     sub=parser.add_subparsers(dest='command')
     g=sub.add_parser('generate',help='Add an adaptive tower to a COPY of a saved Orca project')
     g.add_argument('project');g.add_argument('--output',required=True);g.add_argument('--filaments',type=lambda s:list(map(int,s.split(','))))
-    g.add_argument('--origin',type=float,nargs=2);g.add_argument('--clearance',type=float,default=8)
+    g.add_argument('--origin',type=float,nargs=2);g.add_argument('--clearance',type=float,default=2)
     g.add_argument('--reference-gcode',help='Original reference-only slice; enables same-material donors and matching layers')
+    g.add_argument('--slicer-branch',choices=('mainline','snapmaker'),default='mainline')
     g.add_argument('--plate',type=int,help='1-based plate number in a multi-plate project')
-    g.add_argument('--width',type=float,default=30.);g.add_argument('--rib-size',type=float,default=25.)
-    g.add_argument('--purge-volume',type=float,default=5.)
+    g.add_argument('--width',type=float,default=30.);g.add_argument('--rib-size',type=float,default=5.)
+    g.add_argument('--purge-volume',type=float,default=5.);g.add_argument('--brim-width',type=float,default=5.)
     g.add_argument('--support-slot',type=int);g.add_argument('--frame-slot',type=int)
     a=sub.add_parser('audit',help='Check exported G-code without changing it')
-    a.add_argument('--project',required=True);a.add_argument('--min-volume',type=float);a.add_argument('--report');a.add_argument('gcode')
+    a.add_argument('--plate',type=int,help='Plate whose exported G-code is being audited');a.add_argument('--project',required=True);a.add_argument('--min-volume',type=float);a.add_argument('--report');a.add_argument('gcode')
     sub.add_parser('gui',help='Choose a project and output using file dialogs')
     args=parser.parse_args(argv)
     try:
         if args.command in (None,'gui'):gui();return 0
         if args.command=='generate':
             if Path(args.project).resolve()==Path(args.output).resolve():raise TowerError('The original project cannot be overwritten.')
-            result=Project(args.project,args.plate).generate(args.output,args.filaments,args.origin,args.clearance,args.reference_gcode,args.width,args.rib_size,args.purge_volume,args.support_slot,args.frame_slot)
+            result=Project(args.project,args.plate,args.slicer_branch).generate(args.output,args.filaments,args.origin,args.clearance,args.reference_gcode,args.width,args.rib_size,args.purge_volume,args.support_slot,args.frame_slot,args.brim_width)
             print(json.dumps(result,indent=2));return 0
-        result=audit(args.gcode,load_manifest(args.project),args.min_volume)
+        result=audit(args.gcode,load_manifest(args.project,args.plate),args.min_volume)
         if args.report:Path(args.report).write_text(json.dumps(result,indent=2))
         print(json.dumps(result,indent=2));return 0 if result['passed'] else 2
     except (TowerError,OSError,ValueError,ET.ParseError,zipfile.BadZipFile) as e:

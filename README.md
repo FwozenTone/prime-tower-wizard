@@ -28,14 +28,14 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 
 | Application | Version | Purpose |
 | --- | --- | --- |
-| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.8/) | 1.3.8 | Generate a material-isolated tower project and open it in Orca for slicing. |
+| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.25/) | 1.3.25 | Generate a material-isolated tower project and open it in Orca for slicing. |
 | [Tower Speed Ramp](apps/tower-speed-ramp-v1.0.1/) | 1.0.1 | Optional Orca post-processing script that gradually increases extrusion speed while priming after tool pickup. |
 
 The applications are independent. The wizard works without the ramping script.
 
 ## Requirements
 
-- Python 3.10 or later; no third-party Python packages required.
+- Python 3.10 or later with pip. First use downloads the brim geometry library; internet access is required for that initial setup.
 - OrcaSlicer, with a configured multi-toolhead printer. The development baseline is OrcaSlicer 2.4.2.
 - Compatible (and much faster) with OrcaSlicer 2.5
 - Not yet directly compatible with other forks of OrcaSlicer (Snorca, etc), however tower can still be generated if .3mf first opened and saved in Orca... tower generated... new .3mf saved and then re-opened in Snorca.  Have tested this.  Planning to update utility for direct compatibilty with latest Snorca as well.
@@ -71,7 +71,7 @@ Set-Location prime-tower-wizard
 1. Start the installer from the same Terminal window:
 
    ```sh
-   open "apps/isolated-prime-tower-v1.3.8/Install Prime Tower Wizard.command"
+   open "apps/isolated-prime-tower-v1.3.25/Install Prime Tower Wizard.command"
    ```
 
    Alternatively, open the downloaded folder in Finder and double-click that file.
@@ -87,7 +87,7 @@ Close any older wizard session before launching the installed version.
 Keep the application folders in a permanent location. On Windows, use `Start Prime Tower Wizard.bat` inside the wizard folder. On Linux, run `sh start-prime-tower-wizard.sh`, or start the wizard directly:
 
 ```sh
-python3 apps/isolated-prime-tower-v1.3.8/tower_wizard.py
+python3 apps/isolated-prime-tower-v1.3.25/tower_wizard.py
 ```
 
 For ramping, use the full path to your Python executable and the post-processing script as described below.
@@ -128,18 +128,18 @@ The script audits before and after modification, replaces the working export onl
 
 For the Voron workflow, ramping applies at export/send; normal slicer preview retains the original speeds. Inspect the exported plain G-code to see modified speeds. Time estimates are not recalculated.
 
-See the [wizard guide](apps/isolated-prime-tower-v1.3.8/README.md) and [ramping guide](apps/tower-speed-ramp-v1.0.1/README.md) for detailed usage and limitations.
+See the [wizard guide](apps/isolated-prime-tower-v1.3.25/README.md) and [ramping guide](apps/tower-speed-ramp-v1.0.1/README.md) for detailed usage and limitations.
 
 ## Version
 
-Prime Tower Wizard v1.3.8 uses the stable installation folder `Tower_Wizard` and app name **Prime Tower Wizard.app**. Quit the running wizard before upgrading. The repository retains only the current Prime Tower Wizard source folder; Tower Speed Ramp is versioned independently.
+Prime Tower Wizard v1.3.25 uses the stable installation folder `Tower_Wizard` and app name **Prime Tower Wizard.app**. Quit the running wizard before upgrading. The repository retains only the current Prime Tower Wizard source folder; Tower Speed Ramp is versioned independently.
 
 ## Tests
 
 From the repository root:
 
 ```sh
-python3 -m unittest discover -s apps/isolated-prime-tower-v1.3.8 -p 'test_*.py'
+python3 -m unittest discover -s apps/isolated-prime-tower-v1.3.25 -p 'test_*.py'
 python3 -m unittest discover -s apps/tower-speed-ramp-v1.0.1 -p 'test_*.py'
 ```
 

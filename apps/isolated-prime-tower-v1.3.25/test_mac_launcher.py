@@ -17,7 +17,7 @@ class LauncherTests(unittest.TestCase):
             app=build_app(target,sys.executable)
             info=plistlib.loads((app/'Contents/Info.plist').read_bytes())
             self.assertEqual(info['CFBundleExecutable'],'applet')
-            self.assertEqual(info['CFBundleVersion'],'1.3.8')
+            self.assertEqual(info['CFBundleVersion'],'1.3.25')
             self.assertEqual(info['CFBundleIconFile'],'TowerIcon.icns')
             self.assertNotIn('CFBundleIconName',info)
             subprocess.run(['/usr/bin/codesign','--verify','--deep',str(app)],check=True)

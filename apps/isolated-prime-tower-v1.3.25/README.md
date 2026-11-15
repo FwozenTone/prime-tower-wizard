@@ -1,3 +1,21 @@
+# Prime Tower Wizard 1.3.25
+
+The tower starts at the front corner, an additional 5 mm inward in X and Y. It is never automatically rotated or searched around other objects. Adjust placement in Orca as needed.
+
+Snapmaker reference slicing now accepts Mainline-saved projects using its supported `--allow-newer-file` option. Mainline slicing is unchanged.
+
+Choose your 3MF, plates, and tower settings, then select **Generate selected towers**. The wizard reads an initial reference slice to determine materials and layer heights, adds the towers and their combined brims, and opens the saved 3MF in your selected Orca application. Review placement, slice, and print in Orca. The wizard no longer performs a final slice or audit, even if a previous session saved that option.
+
+Mainline and Snapmaker Orca remain selectable. Each plate's Outer brim width controls its built-in brim, assigned to the frame filament with zero gap. Slicer brim is disabled for the tower only. Previous versions remain available separately.
+
+Both Mainline and Snapmaker Orca now use a generated brim, part of the same movable tower assembly and assigned to its outer wall/ribs filament. Each plate's **Outer brim width** controls the outward offset; zero omits it. The brim is one first layer thick and touches the tower with no gap. Slicer brim generation is disabled only for the tower. Original model brim settings are preserved.
+
+The first nonzero-brim generation downloads the Shapely geometry library and its dependencies into a private user cache (internet access and Python with pip required). Later runs reuse it; no global Python packages are changed.
+
+Select Mainline or Snapmaker in the Slicer panel; each remembers its own application location. Snapmaker 2.4.1 was tested on macOS. Its factory startup purge line still triggers the strict pickup audit; machine startup commands are not modified. No physical print validation has been performed.
+
+Previous workflow notes follow.
+
 # Isolated Prime Tower — Orca 2.4.2 companion prototype
 
 This is a working project generator plus a conservative G-code auditor, **not an installable native Orca plugin**. Orca 2.4.2 has no native Python plugin system. This package does not replace Orca's internal tool-change scheduler and has not yet been validated with your StealthChanger project or printed on hardware.
@@ -5,7 +23,7 @@ This is a working project generator plus a conservative G-code auditor, **not an
 ## What it generates
 
 - One continuous serpentine section for each actually used slot, up to twelve tools (T0–T11). PLA, PETG, ASA, ABS, nylon, PPS and dedicated support materials can have separate sections.
-- Configurable internal rectangle width (default 30 mm), rounded outer rib size (default 5 mm), outer brim width (default 5 mm), and minimum purge volume per pickup (default 5 mm³).
+- Configurable internal rectangle width (default 30 mm), rounded outer rib size (default 25 mm), and minimum purge volume per pickup (default 5 mm³).
 - Section depth increases with the requested volume and the thinnest reference layer. The final G-code audit measures actual volume; this is a minimum, not an exact-volume purge.
 - A solid bottom up to 1 mm thick, 0.8 mm serpentine walls, and no top skin. Ribs and connections move outward as needed to avoid overlapping opposing ribs.
 - Automatic rigid frame material selection, with a manual slot override. Preference: PPS, PEEK, PEI, PC, ASA, ABS, PETG, PLA, nylon. This is a deterministic starting preference, not a measured strength rating. Dedicated support and flexible materials cannot own the frame.
@@ -16,23 +34,23 @@ This is a working project generator plus a conservative G-code auditor, **not an
 
 The project provides filament material types. Only tools actually extruding model/support paths create sections; unused loaded slots, startup-only tools, and tools used only in the original prime tower or brim do not. Painted models need no manual filament list when reference G-code is supplied. Filament colors retain individual sections, with same-type donors allowed.
 
-The generator copies the original project, preserves the original model meshes and machine/tool-change templates, disables the normal prime tower and flush-into-object options, and sets **By layer / As object list**, with **IPT_ASSEMBLY first** in the build and object lists. It does not synthesize new StealthChanger commands or temperatures.
+The generator copies the original project, preserves the original model meshes and machine/tool-change templates, disables the normal prime tower and flush-into-object options, and sets **By layer / As object list**, with **the generated tower first on each target plate** in the build and object lists. It does not synthesize new StealthChanger commands or temperatures.
 
 ## Guided window (macOS, Windows, Linux)
 
 Double-click **Start Prime Tower Wizard.command**, or run `python3 isolated_prime_tower.py gui`. A local browser window opens; keep its Terminal launcher running. Python 3.10+ is required, but Tk and additional packages are not.
 
-1. Choose the original 3MF and select its plate number. The output defaults to the original project's folder and can be changed.
-2. Click **Slice & build tower**. The utility asks Orca to slice that plate and builds `tower.3mf`. Post-tower slicing and auditing are skipped by default; select **Run post-tower slicing and validation** when you want the full audit. Each run has a new output folder and logs. Other plates are retained. The original is not overwritten.
+1. Choose a 3MF and select one or more plates. Each selected plate has independent width, rib size, brim width, minimum purge, and outer-wall/rib filament settings. Defaults are 30 mm, 5 mm, 5 mm, 5 mm³, and Automatic, respectively. Choosing a new project resets these settings. The wizard no longer asks for a support-tool selection. Plates with an existing generated tower are shown but disabled. All other plates are selectable, including mixed-material plates without supports. The working-folder location can be changed; the final project is always saved beside the original.
+2. Click **Slice & build selected towers**. Only selected plates are sliced. Each tower uses its own plate’s reference G-code and is added only to that plate. The result is one combined project beside the original, named `something_tower_v1.3mf` (or the next available version number), without overwriting existing files. A failure on one plate does not stop the remaining plates; the results identify successes and failures. Post-tower slicing and auditing are skipped by default; select **Run post-tower slicing and validation** when you want the full audit. Each run uses a working folder. After the final project is saved, the working folder and all sidecars, logs, and reports are removed. Only the generated 3MF remains. Enable **Keep working folder for debugging** to retain the working files; this option is off by default. Interrupted or failed saves retain working files for recovery. Other plates are retained. The original is not overwritten.
 3. A passing result can open the tower project in Orca automatically. A failed audit is shown as a failure, never as verified output.
 
-If command-line slicing fails, the **Guided manual export** controls appear immediately below the active Slice reference indicator. Export the selected original plate in Orca, choose that reference G-code and build the tower. The final-export manual validation controls are no longer shown. Plate selection is explicit; the utility does not guess plate identity from filenames.
+For a single selected plate, if command-line slicing fails, the **Guided manual export** controls appear immediately below the active Slice reference indicator. Export the selected original plate in Orca, choose that reference G-code and build the tower. The final-export manual validation controls are no longer shown. Plate selection is explicit; the utility does not guess plate identity from filenames.
 
 Automatic slicing is implemented but **not yet validated end to end with the installed Orca 2.4.2**: the command-line test aborts in this environment. Logs are saved and the manual path remains available. Opening the result in Orca is for review; the utility never sends a print command. If you move the tower after a passing audit, save, reslice and audit again.
 
 ## Run
 
-Requires Python 3.10 or later. No third-party Python packages are required. Keep this folder somewhere permanent.
+Requires Python 3.10 or later. Generated brims use Shapely, prepared automatically on first use. Keep this folder somewhere permanent.
 
 For file dialogs:
 
@@ -114,7 +132,7 @@ Official references:
 
 ## Audit metadata after saving in Orca
 
-Generation now also writes `with_tower.3mf.ipt.json` beside the output project. Keep that file with its matching project and preserve its filename. If Orca removes the embedded manifest on save, the audit uses this companion file. It records the original geometry and assignments; the audit derives XY translation from the saved IPT_ASSEMBLY object. Regenerate after changes beyond moving the whole assembly in XY. When saving under a new name, copy the matching companion file to the new `.3mf.ipt.json` filename. Existing projects without either metadata copy must be regenerated from the original reference project, using a new output filename.
+The command-line generator also writes `with_tower.3mf.ipt.json` beside its output project. The wizard keeps metadata embedded in the final 3MF and does not retain an external sidecar unless you keep its working folder for debugging. Keep that file with its matching project and preserve its filename. If Orca removes the embedded manifest on save, the audit uses this companion file. It records the original geometry and assignments; the audit derives XY translation from the saved IPT_ASSEMBLY object. Regenerate after changes beyond moving the whole assembly in XY. When saving under a new name, copy the matching companion file to the new `.3mf.ipt.json` filename. Existing projects without either metadata copy must be regenerated from the original reference project, using a new output filename.
 
 ## Choose an installation folder and add to Dock
 
@@ -136,9 +154,11 @@ The package includes an original castle-tower icon in PNG, macOS ICNS, and Windo
 
 The installer accepts paths containing spaces. Enter `q` to cancel before any installation changes. Replacing an installation removes the previous installed copy after confirmation; no installed-version backup is retained.
 
-The browser opens independently of the local server, with a bounded macOS browser-launch call. If opening fails, the local URL is recorded in `wizard.log` in the installation folder for manual access. The native stay-open macOS launcher lets the Dock track the application normally; clicking its Dock icon reopens the browser page, and quitting the app stops its wizard server.
+Version 1.3.6 opens the browser independently of the local server, with a bounded macOS browser-launch call. If opening fails, the local URL is recorded in `wizard.log` in the installation folder for manual access.
 
-Version 1.3.8 uses one progressive interface: progress appears only after processing starts, and guided reference export appears only after automatic reference slicing fails. Selecting a different original 3MF resets the prior flow. Step indicators, manual final-export validation controls, and the troubleshooting log were removed; optional automatic post-tower validation remains available. The completed-project message embeds a green **Open project with generated tower in Orca** button. After automatic opening it is presented as an optional recovery action; otherwise it is the primary opening action.
+Version 1.3.6 uses a native stay-open macOS launcher so the Dock can track the application normally. Click its Dock icon to reopen the browser page. Quit the app from the Dock to stop its wizard server; closing the browser tab alone leaves it running. Force Quit bypasses normal server cleanup.
+
+Version 1.3.9 adds independent towers on multiple plates and per-plate audit metadata. To audit an individual plate from a combined project, add `--plate N` to the audit command. For a failed batch plate, select just that plate to retry with guided manual export; use the combined project to retain successfully generated towers. The existing progressive interface remains: progress appears only after processing starts, and guided reference export appears only after automatic reference slicing fails. Selecting a different original 3MF resets the prior flow. Step indicators, manual final-export validation controls, and the troubleshooting log were removed; optional automatic post-tower validation remains available. The completed-project message embeds a green **Open project with generated tower in Orca** button. After automatic opening it is presented as an optional recovery action; otherwise it is the primary opening action.
 
 When automatic opening is disabled, the green Open button follows the completion sentence directly without additional instructional text around it.
 
@@ -152,7 +172,7 @@ The slicer’s built-in prime tower is disabled with a plate-level override on t
 
 The generator preserves every original object/component transform, including intentional negative Z placement used to flatten a model against the build plate. Automatic slicing is attempted for every project, including painted multicolor projects. Guided manual export is offered only after command-line slicing actually fails or crashes; macOS then reuses Orca if it is running or launches it as needed. The interrupted job retains every form selection, even if the wizard page is reopened, and the reference G-code picker starts in the original 3MF folder.
 
-When guided recovery is needed, the wizard scrolls to and focuses the Reference G-code field and highlights its build action. Building from that reference export automatically opens the generated tower 3MF when the original Open-after setting was selected. Optional automatic post-tower verification remains available.
+When guided recovery is needed, the wizard scrolls to and focuses the Reference G-code field and highlights its build action. Building from that reference export automatically opens the generated tower 3MF when the original Open-after setting was selected. Final-export verification remains optional.
 
 The Original 3MF picker remembers the folder from the previous successful setup and starts there on the next use. It does not preselect the prior project file.
 

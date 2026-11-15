@@ -58,20 +58,20 @@ class WorkflowTests(unittest.TestCase):
   with patch.object(w,'setup'),patch.object(w,'slice',side_effect=ipt.TowerError('slice failed')),patch.object(w,'generate') as generate,patch.object(w,'open_in_orca') as opened:
    w.automatic(selections)
   generate.assert_not_called();opened.assert_called_once_with(w.source);self.assertEqual('manual_reference',w.state['stage']);self.assertEqual(selections,w.state['inputs'])
- def test_auto_runs_both_slices_and_audit_before_open(self):
+ def test_old_validation_setting_does_not_add_final_slice(self):
   w=wizard.Workflow();w.source=self.folder/'source.3mf';w.output=self.folder/'tower.3mf';calls=[]
   def verify(path):calls.append(('verify',str(path)));w.state['stage']='passed'
   def sliced(project,tag):calls.append(('slice',tag));return self.folder/(tag+'.gcode')
   with patch.object(w,'setup'),patch.object(w,'slice',side_effect=sliced),patch.object(w,'generate',side_effect=lambda p:calls.append(('generate',str(p)))),patch.object(w,'verify',side_effect=verify),patch.object(w,'open_project',side_effect=lambda:calls.append(('open',''))):
    w.automatic({'run_validation':True,'open_after':True})
-  self.assertEqual(['slice','generate','slice','verify','open'],[c[0] for c in calls])
+  self.assertEqual(['slice','generate','open'],[c[0] for c in calls])
  def test_auto_skips_post_tower_slice_and_audit_by_default(self):
   w=wizard.Workflow();w.source=self.folder/'source.3mf';w.output=self.folder/'tower.3mf';calls=[]
   def sliced(project,tag):calls.append(('slice',tag));return self.folder/(tag+'.gcode')
   with patch.object(w,'setup'),patch.object(w,'slice',side_effect=sliced),patch.object(w,'generate',side_effect=lambda p:calls.append(('generate',str(p)))),patch.object(w,'verify') as verify,patch.object(w,'open_project',side_effect=lambda:calls.append(('open',''))):
    w.automatic({'open_after':True})
   self.assertEqual(['slice','generate','open'],[c[0] for c in calls]);verify.assert_not_called()
-  self.assertEqual('unverified',w.state['stage']);self.assertTrue(w.state['result']['validation_skipped']);self.assertEqual('Tower generated and added to project plate. Plate should already be open in Orca and is ready for slicing and printing.',w.state['message']);self.assertTrue(w.state['open_after'])
+  self.assertEqual('tower_ready',w.state['stage']);self.assertEqual('Tower generated and saved. Opening the project in Orca for you to review placement and slice.',w.state['message']);self.assertTrue(w.state['open_after'])
  def test_completed_project_without_auto_open_requests_button(self):
   w=wizard.Workflow();w.source=self.folder/'source.3mf';w.output=self.folder/'tower.3mf'
   with patch.object(w,'setup'),patch.object(w,'slice',return_value=self.folder/'reference.gcode'),patch.object(w,'generate',side_effect=lambda p:w.update('tower_ready',w.completion_message(),project=str(w.output),open_after=w.open_after)),patch.object(w,'open_project') as opened:
@@ -83,10 +83,10 @@ class WorkflowTests(unittest.TestCase):
   with patch.object(w,'generate'),patch.object(w,'open_project') as opened:
    w.manual_generate(data)
   opened.assert_called_once_with();self.assertEqual(17,w.options['rib_size'])
- def test_failed_audit_does_not_auto_open(self):
+ def test_audit_is_not_part_of_generation(self):
   w=wizard.Workflow();w.source=self.folder/'source.3mf';w.output=self.folder/'tower.3mf'
   with patch.object(w,'setup'),patch.object(w,'slice',return_value=self.folder/'a.gcode'),patch.object(w,'generate'),patch.object(w,'verify',side_effect=lambda p:w.update('failed','failed')),patch.object(w,'open_project') as opened:
-   w.automatic({'run_validation':True});opened.assert_not_called()
+   w.automatic({'run_validation':True});opened.assert_called_once_with()
  def test_new_source_reset_returns_to_initial_flow(self):
   w=wizard.Workflow();w.source=self.folder/'old.3mf';w.output=self.folder/'old-tower.3mf';w.state.update(stage='unverified',project=str(w.output),folder=str(self.folder),events=['done'],inputs={'source':str(w.source)})
   w.reset()

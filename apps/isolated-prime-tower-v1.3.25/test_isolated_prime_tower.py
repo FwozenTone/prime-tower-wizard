@@ -51,7 +51,7 @@ class ProjectTests(unittest.TestCase):
     objects=cfg.findall('object');self.assertEqual(count+1,len(objects))
     self.assertEqual('IPT_ASSEMBLY',ipt.metadata(objects[0])['name'])
     tower_settings=ipt.metadata(objects[0])
-    self.assertEqual('outer_only',tower_settings['brim_type']);self.assertEqual('5',tower_settings['brim_width']);self.assertEqual('0',tower_settings['brim_object_gap']);self.assertEqual(5,manifest['brim_width'])
+    self.assertEqual('no_brim',tower_settings['brim_type']);self.assertEqual('0',tower_settings['brim_width']);self.assertEqual('0',tower_settings['brim_object_gap']);self.assertEqual(5,manifest['brim_width'])
     parts=objects[0].findall('part')
     for lane,part in zip(manifest['lanes'],parts):
      md=ipt.metadata(part);self.assertEqual(str(lane['filament_slot']),md['extruder'])
@@ -135,7 +135,8 @@ class ProjectTests(unittest.TestCase):
   with self.assertRaises(ipt.TowerError):project.used_filaments()
  def test_model_placement_and_bed_bounds(self):
   source,_=self.fixture();project=ipt.Project(source)
-  with self.assertRaises(ipt.TowerError):project.generate(self.folder/'invalid.3mf',origin=(-100,-100))
+  manual=ipt.Project(source).generate(self.folder/'manual.3mf',origin=(-100,-100))
+  self.assertEqual([-95.,-95.],manual['origin'])
   manifest=project.generate(self.folder/'valid.3mf');b=manifest['tower_bounds'];self.assertGreaterEqual(min(b),3);self.assertLessEqual(max(b),347)
  def test_geometry_dimensions(self):
   for count in range(2,10):

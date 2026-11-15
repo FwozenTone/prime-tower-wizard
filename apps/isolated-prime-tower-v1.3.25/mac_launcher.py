@@ -52,7 +52,8 @@ end quit
 def build_app(target, python, runtime_target=None):
     target=Path(target)
     app=target/'Prime Tower Wizard.app'
-    with tempfile.TemporaryDirectory(dir=target) as temp:
+    # Build/sign outside synced Documents folders, which can re-add Finder metadata.
+    with tempfile.TemporaryDirectory(prefix="tower-wizard-build-") as temp:
         temp=Path(temp);source=temp/'launcher.applescript'
         source.write_text(launcher_source(runtime_target or target,python))
         built=temp/app.name
@@ -63,11 +64,14 @@ def build_app(target, python, runtime_target=None):
         # CFBundleIconFile on current macOS and hides our custom icon.
         data.pop('CFBundleIconName',None)
         data.update(CFBundleName='Prime Tower Wizard',CFBundleDisplayName='Prime Tower Wizard',
-                    CFBundleIdentifier='local.tonyo.primetowerwizard',CFBundleVersion='1.3.8',
-                    CFBundleShortVersionString='1.3.8',CFBundleIconFile='TowerIcon.icns',
+                    CFBundleIdentifier='local.tonyo.primetowerwizard',CFBundleVersion='1.3.25',
+                    CFBundleShortVersionString='1.3.25',CFBundleIconFile='TowerIcon.icns',
                     NSHighResolutionCapable=True)
         info.write_bytes(plistlib.dumps(data))
         shutil.copy2(target/'TowerIcon.icns',contents/'Resources/TowerIcon.icns')
+        # Finder metadata can be added in synced Documents folders and prevents signing.
+        for attribute in ('com.apple.FinderInfo','com.apple.ResourceFork'):
+            subprocess.run(['/usr/bin/xattr','-dr',attribute,str(built)],stdout=subprocess.DEVNULL,stderr=subprocess.DEVNULL,check=False)
         subprocess.run(['/usr/bin/codesign','--force','--sign','-',str(built)],check=True)
         previous=temp/'previous.app'
         if app.exists():shutil.move(str(app),str(previous))

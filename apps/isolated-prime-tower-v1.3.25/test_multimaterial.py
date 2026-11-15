@@ -90,7 +90,7 @@ class MultiMaterialTests(unittest.TestCase):
   with zipfile.ZipFile(output) as archive:
    cfg=ET.fromstring(archive.read(ipt.MODEL_SETTINGS));settings=json.loads(archive.read(ipt.SETTINGS))
   objects=cfg.findall('object');tower=ipt.metadata(objects[0]);original=next(ipt.metadata(o) for o in objects if ipt.metadata(o).get('name')=='reference')
-  self.assertEqual(12.5,manifest['brim_width']);self.assertEqual('12.5',tower['brim_width'])
+  self.assertEqual(12.5,manifest['brim_width']);self.assertEqual('0',tower['brim_width']);self.assertTrue(manifest['brim_geometry'])
   self.assertEqual(('inner_and_outer','17','.2'),(settings['brim_type'],settings['brim_width'],settings['brim_object_gap']))
   self.assertEqual(('no_brim','3'),(original['brim_type'],original['brim_width']))
  def test_support_selection_must_match_reference(self):
