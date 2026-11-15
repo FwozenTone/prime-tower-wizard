@@ -20,7 +20,13 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 
 **The generated tower:** Each filament has an internal priming section, with different material types kept separate vertically. The outer wall and rounded ribs support the structure. This example shows the tower in OrcaSlicer, where you can review and adjust its placement before the final slice.
 
-<img src="docs/images/prime-tower-wizard-ui.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
+<img src="docs/images/PrimeTowerWizard1.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
+
+<img src="docs/images/PrimeTowerWizard2.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
+
+<img src="docs/images/PrimeTowerWizard3.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
+
+<img src="docs/images/PrimeTowerWizard4.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
 
 **The wizard:** Select your original 3MF and plate, choose an output folder, and configure tower dimensions and minimum priming volume. The wizard generates the tower project for review in Orca and provides checks for the exported G-code. The screenshot shows the upper portion of the interface.
 
