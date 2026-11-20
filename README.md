@@ -20,13 +20,7 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 
 **The generated tower:** Each filament has an internal priming section, with different material types kept separate vertically. The outer wall and rounded ribs support the structure. This example shows the tower in OrcaSlicer, where you can review and adjust its placement before the final slice.
 
-<img src="docs/images/PrimeTowerWizard1.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
-
-<img src="docs/images/PrimeTowerWizard2.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
-
-<img src="docs/images/PrimeTowerWizard3.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
-
-<img src="docs/images/PrimeTowerWizard4.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
+<img src="docs/images/Prime Tower Wizard.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
 
 **The wizard:** Select your original 3MF and plate, choose an output folder, and configure tower dimensions and minimum priming volume. The wizard generates the tower project for review in Orca and provides checks for the exported G-code. The screenshot shows the upper portion of the interface.
 
@@ -148,6 +142,12 @@ Added support for Snapmaker Orca alongside Mainline Orca, with easy slicer selec
 
 Added multi-plate tower generation with independent settings for each plate.
 Combined the brim with the tower, using the selected brim width and outer-wall filament.
+
+Added gussets to the prime tower to provide stability for taller towers.
+
+Added option to set the thickness of the prime tower brim for increased tower stability.
+
+Optimized the priming path to reduce possibility for filament build up and nozzle catching on the tower.
 
 Further refinements to the UI with a simplified workflow.
 
