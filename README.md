@@ -34,7 +34,8 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 
 | Application | Version | Purpose |
 | --- | --- | --- |
-| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.25/) | 1.3.25 | Generate a material-isolated tower project and open it in Orca for slicing. |
+| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.36/) | 1.3.36 | Generate a material-isolated tower project and open it in Orca for slicing. |
+| [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.25/) | 1.3.25 | Retained for rollback. |
 | [Tower Speed Ramp](apps/tower-speed-ramp-v1.0.1/) | 1.0.1 | Optional Orca post-processing script that gradually increases extrusion speed while priming after tool pickup. |
 
 The applications are independent. The wizard works without the ramping script.
@@ -44,7 +45,7 @@ The applications are independent. The wizard works without the ramping script.
 - Python 3.10 or later with pip. First use downloads the brim geometry library; internet access is required for that initial setup.
 - OrcaSlicer, with a configured multi-toolhead printer. The development baseline is OrcaSlicer 2.4.2.
 - Compatible (and much faster) with OrcaSlicer 2.5 or later
-- Compatible with Snorca 2.4.1 or later
+- Compatible with Snapmaker Orca (Snorca) 2.4.1 or later; select Mainline or Snapmaker in the wizard.
 - Direct tool-to-filament mapping: T0 = slot 1 through T11 = slot 12.  
   
 
@@ -77,7 +78,7 @@ Set-Location prime-tower-wizard
 1. Start the installer from the same Terminal window:
 
    ```sh
-   open "apps/isolated-prime-tower-v1.3.25/Install Prime Tower Wizard.command"
+   open "apps/isolated-prime-tower-v1.3.36/Install Prime Tower Wizard.command"
    ```
 
    Alternatively, open the downloaded folder in Finder and double-click that file.
@@ -93,7 +94,7 @@ Close any older wizard session before launching the installed version.
 Keep the application folders in a permanent location. On Windows, use `Start Prime Tower Wizard.bat` inside the wizard folder. On Linux, run `sh start-prime-tower-wizard.sh`, or start the wizard directly:
 
 ```sh
-python3 apps/isolated-prime-tower-v1.3.25/tower_wizard.py
+python3 apps/isolated-prime-tower-v1.3.36/tower_wizard.py
 ```
 
 For ramping, use the full path to your Python executable and the post-processing script as described below.
@@ -104,19 +105,22 @@ For ramping, use the full path to your Python executable and the post-processing
 2. In the wizard, select the original 3MF, plate number and Orca executable. Set tower width, rib size, minimum priming volume and material options.
 3. Click **Slice & build tower**. If Orca command-line slicing fails, the guided reference G-code controls appear with the current settings retained.
 4. The generated project opens in Orca when selected. Review the plate and move the entire `IPT_ASSEMBLY` in XY if needed.
-5. Slice and inspect Orca’s preview before printing. Optional automatic post-tower validation can be enabled in the wizard.
+5. Slice and inspect Orca’s preview before printing. Generation does not run a final slice or audit. The G-code audit is a separate optional command.
 
 Regenerate after changing model geometry, materials or layer heights. Do not split, rotate, scale or rename the tower assembly. Retain **By layer**, **As object list**, tower-first ordering and the disabled built-in prime tower.
 
 ## Tower behavior
 
-- One continuous internal priming section per actually used filament, up to 12 tools.
+- One cross-braced priming section per actually used filament, up to 12 tools, with rounded cells and X-direction cross-ribs.
 - Separate material types stay in separate vertical sections. An active tool of the same material type can maintain an idle tool’s section to reduce swaps.
-- Rounded external ribs, an outer frame, and a configurable zero-gap outer brim.
-- Configurable width, rib size, brim width and minimum priming volume; defaults are 30 mm, 5 mm, 5 mm and 5 mm³.
+- Rounded external ribs, an outer frame, reinforcing gussets, and a configurable zero-gap brim built into the assembly. Slicer brim is disabled for the tower only.
+- Configurable width, rib size, brim width, brim thickness, and minimum priming volume; defaults are 30 mm, 5 mm, 5 mm, 0.6 mm, and 5 mm³. Brim thickness accepts 0.5–1.5 mm.
+- Tower-only settings disable scarf seams for full-flow priming starts and suppress tiny junction paths. Model settings remain unchanged.
 - Automatic rigid frame-material selection with a manual override. The preference is a heuristic, not a measured strength guarantee.
 - Tower height ends at the last relevant reference pickup layer. Variable layer boundaries follow the reference print when compatible with the configured tools.
 - The audit checks tower visits after tool changes, material confinement, layer coverage and priming volume. It cannot inspect motion hidden inside firmware macros or certify physical collision clearance.
+
+The separate audit in v1.3.36 still rejects a model-brim-first sequence, even though a model brim can serve as initial priming. This does not block tower generation. G-code validation does not guarantee physical freedom from blobs or nozzle catches.
 
 ## Optional volume-based ramping
 
@@ -134,11 +138,11 @@ The script audits before and after modification, replaces the working export onl
 
 For the Voron workflow, ramping applies at export/send; normal slicer preview retains the original speeds. Inspect the exported plain G-code to see modified speeds. Time estimates are not recalculated.
 
-See the [wizard guide](apps/isolated-prime-tower-v1.3.25/README.md) and [ramping guide](apps/tower-speed-ramp-v1.0.1/README.md) for detailed usage and limitations.
+See the [wizard guide](apps/isolated-prime-tower-v1.3.36/README.md) and [ramping guide](apps/tower-speed-ramp-v1.0.1/README.md) for detailed usage and limitations.
 
 ## Version
 
-Prime Tower Wizard v1.3.25 uses the stable installation folder `Tower_Wizard` and app name **Prime Tower Wizard.app**. Quit the running wizard before upgrading. The repository retains only the current Prime Tower Wizard source folder; Tower Speed Ramp is versioned independently.
+Prime Tower Wizard v1.3.36 uses the stable installation folder `Tower_Wizard` and app name **Prime Tower Wizard.app**. Quit the running wizard before upgrading. The repository retains v1.3.25 alongside v1.3.36 for rollback; Tower Speed Ramp is versioned independently.
 
 Added support for Snapmaker Orca alongside Mainline Orca, with easy slicer selection.
 
@@ -152,7 +156,7 @@ Further refinements to the UI with a simplified workflow.
 From the repository root:
 
 ```sh
-python3 -m unittest discover -s apps/isolated-prime-tower-v1.3.25 -p 'test_*.py'
+python3 -m unittest discover -s apps/isolated-prime-tower-v1.3.36 -p 'test_*.py'
 python3 -m unittest discover -s apps/tower-speed-ramp-v1.0.1 -p 'test_*.py'
 ```
 
