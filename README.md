@@ -22,7 +22,7 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 
 <img src="docs/images/Prime Tower Wizard.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
 
-**The wizard:** Select your original 3MF and plate, choose an output folder, and configure tower dimensions and minimum priming volume. The wizard generates the tower project for review in Orca and provides checks for the exported G-code. The screenshot shows the upper portion of the interface.
+**The wizard:** Select your original 3MF and plate, choose an output folder, and configure tower dimensions and minimum priming volume. The wizard generates the tower project for review in Orca and provides checks for the exported G-code. 
 
 ## Applications
 
