@@ -18,7 +18,7 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 
 <img src="docs/images/isolated-prime-tower.png" alt="Generated tower in OrcaSlicer, showing separate internal priming sections and rounded outer ribs" width="360">
 
-**The generated tower:** Each filament has an internal priming section, with different material types kept separate vertically. The outer wall and rounded ribs support the structure. This example shows the tower in OrcaSlicer, where you can review and adjust its placement before the final slice.
+**The generated tower:** Each filament has an internal priming section, with different material types kept separate vertically. The outer wall and rounded ribs support the structure. Example above shows the tower in OrcaSlicer, where you can review and adjust its placement before the final slice.
 
 <img src="docs/images/Prime Tower Wizard.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
 
