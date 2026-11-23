@@ -28,7 +28,8 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 
 | Application | Version | Purpose |
 | --- | --- | --- |
-| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.36/) | 1.3.36 | Generate a material-isolated tower project and open it in Orca for slicing. |
+| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.38/) | 1.3.38 | Generate a material-isolated tower project and open it in Orca for slicing. |
+| [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.36/) | 1.3.36 | Retained for rollback; same tower geometry as 1.3.38. |
 | [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.25/) | 1.3.25 | Previous version with out gussets, brim thickness setting, and original priming path. |
 | [Tower Speed Ramp](apps/tower-speed-ramp-v1.0.1/) | 1.0.1 | Optional Orca post-processing script that gradually increases extrusion speed while priming after tool pickup. |
 
@@ -72,7 +73,7 @@ Set-Location prime-tower-wizard
 1. Start the installer from the same Terminal window:
 
    ```sh
-   open "apps/isolated-prime-tower-v1.3.36/Install Prime Tower Wizard.command"
+   open "apps/isolated-prime-tower-v1.3.38/Install Prime Tower Wizard.command"
    ```
 
    Alternatively, open the downloaded folder in Finder and double-click that file.
@@ -88,7 +89,7 @@ Close any older wizard session before launching the installed version.
 Keep the application folders in a permanent location. On Windows, use `Start Prime Tower Wizard.bat` inside the wizard folder. On Linux, run `sh start-prime-tower-wizard.sh`, or start the wizard directly:
 
 ```sh
-python3 apps/isolated-prime-tower-v1.3.36/tower_wizard.py
+python3 apps/isolated-prime-tower-v1.3.38/tower_wizard.py
 ```
 
 For ramping, use the full path to your Python executable and the post-processing script as described below.
@@ -114,7 +115,7 @@ Regenerate after changing model geometry, materials or layer heights. Do not spl
 - Tower height ends at the last relevant reference pickup layer. Variable layer boundaries follow the reference print when compatible with the configured tools.
 - The audit checks tower visits after tool changes, material confinement, layer coverage and priming volume. It cannot inspect motion hidden inside firmware macros or certify physical collision clearance.
 
-The separate audit in v1.3.36 still rejects a model-brim-first sequence, even though a model brim can serve as initial priming. This does not block tower generation. G-code validation does not guarantee physical freedom from blobs or nozzle catches.
+The separate audit in v1.3.38 still rejects a model-brim-first sequence, even though a model brim can serve as initial priming. This does not block tower generation. G-code validation does not guarantee physical freedom from blobs or nozzle catches.
 
 ## Optional volume-based ramping
 
@@ -132,11 +133,13 @@ The script audits before and after modification, replaces the working export onl
 
 For the Voron workflow, ramping applies at export/send; normal slicer preview retains the original speeds. Inspect the exported plain G-code to see modified speeds. Time estimates are not recalculated.
 
-See the [wizard guide](apps/isolated-prime-tower-v1.3.36/README.md) and [ramping guide](apps/tower-speed-ramp-v1.0.1/README.md) for detailed usage and limitations.
+See the [wizard guide](apps/isolated-prime-tower-v1.3.38/README.md) and [ramping guide](apps/tower-speed-ramp-v1.0.1/README.md) for detailed usage and limitations.
 
 ## Version
 
-Prime Tower Wizard v1.3.36 uses the stable installation folder `Tower_Wizard` and app name **Prime Tower Wizard.app**. Quit the running wizard before upgrading. The repository retains v1.3.25 alongside v1.3.36 for rollback; Tower Speed Ramp is versioned independently.
+Version 1.3.38 displays plate-generation failure reasons in red and immediately clears previous logs and results when generation is restarted. Tower geometry is unchanged from 1.3.36.
+
+Prime Tower Wizard v1.3.38 uses the stable installation folder `Tower_Wizard` and app name **Prime Tower Wizard.app**. Quit the running wizard before upgrading. The repository retains v1.3.36 and v1.3.25 alongside v1.3.38 for rollback; Tower Speed Ramp is versioned independently.
 
 Added support for Snapmaker Orca alongside Mainline Orca, with easy slicer selection.
 
@@ -156,7 +159,7 @@ Further refinements to the UI with a simplified workflow.
 From the repository root:
 
 ```sh
-python3 -m unittest discover -s apps/isolated-prime-tower-v1.3.36 -p 'test_*.py'
+python3 -m unittest discover -s apps/isolated-prime-tower-v1.3.38 -p 'test_*.py'
 python3 -m unittest discover -s apps/tower-speed-ramp-v1.0.1 -p 'test_*.py'
 ```
 
