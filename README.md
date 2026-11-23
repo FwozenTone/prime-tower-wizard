@@ -29,7 +29,6 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 | Application | Version | Purpose |
 | --- | --- | --- |
 | [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.38/) | 1.3.38 | Generate a material-isolated tower project and open it in Orca for slicing. |
-| [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.36/) | 1.3.36 | Retained for rollback; same tower geometry as 1.3.38. |
 | [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.25/) | 1.3.25 | Previous version with out gussets, brim thickness setting, and original priming path. |
 | [Tower Speed Ramp](apps/tower-speed-ramp-v1.0.1/) | 1.0.1 | Optional Orca post-processing script that gradually increases extrusion speed while priming after tool pickup. |
 
