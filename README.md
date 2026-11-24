@@ -28,8 +28,7 @@ Prime Tower Wizard assumes that the object heights, layer height (or variable la
 
 | Application | Version | Purpose |
 | --- | --- | --- |
-| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.40/) | 1.3.40 | Generate a material-isolated tower project and open it in Orca for slicing. |
-| [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.38/) | 1.3.38 | Retained for rollback. |
+| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.40/) | 1.3.40 | Generate a material-isolated tower project and open it in Orca for slicing. Version defaults slicer selection to version last used to save selected 3mf. |
 | [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.25/) | 1.3.25 | Previous version with out gussets, brim thickness setting, and original priming path. |
 | [Tower Speed Ramp](apps/tower-speed-ramp-v1.0.1/) | 1.0.1 | Optional Orca post-processing script that gradually increases extrusion speed while priming after tool pickup. |
 
@@ -99,7 +98,7 @@ For ramping, use the full path to your Python executable and the post-processing
 1. Configure and save the original project in Orca, including materials, supports and layer heights.
 2. In the wizard, select the original 3MF, plate number and Orca executable. Set tower width, rib size, minimum priming volume and material options.
 3. Click **Slice & build tower**. If Orca command-line slicing fails, the guided reference G-code controls appear with the current settings retained.
-4. The generated project opens in Orca when selected. Review the plate and move the entire `IPT_ASSEMBLY` in XY if needed.
+4. The generated project opens in Orca/Snorca when selected. Review the plate and move the entire `IPT_ASSEMBLY` in XY if needed.
 5. Slice and inspect Orca’s preview before printing. Generation does not run a final slice or audit. The G-code audit is a separate optional command.
 
 Regenerate after changing model geometry, materials or layer heights. Do not split, rotate, scale or rename the tower assembly. Retain **By layer**, **As object list**, tower-first ordering and the disabled built-in prime tower.
