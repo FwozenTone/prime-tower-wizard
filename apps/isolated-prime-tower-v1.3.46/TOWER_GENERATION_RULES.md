@@ -1,0 +1,19 @@
+# Tower Generation Rules — agreed November 25, 2026
+
+1. Process only user-selected plates, independently. Count distinct filaments used by objects and supports, grouped by material type.
+2. If a selected plate uses exactly one filament throughout the print, generate no tower. Log: “Plate N: No prime tower needed—only one filament is used.” Do not report this for unselected plates.
+3. Require an explicit outer-wall/rib filament selection per plate. Do not infer it from the supports. Preserve it with that plate’s other parameters; reset it to unselected when a new project is chosen. The selected slot must be a used rigid filament, consistent with the existing frame constraints.
+4. Allocate each material type as many areas as the maximum number of its distinct filaments used on any single layer, including objects and supports. Apply this to the outer-wall material too.
+5. The initial footprint and first layer have at least two internal areas overall. With multiple filaments of one material type, provide at least two initial areas even when only one filament is active per layer. Higher layers may shrink to one active area, including when different filaments of the same type alternate between layers. Exactly one filament throughout the print still means no tower.
+6. Always retain at least one internal area for the chosen outer-wall material, together with its walls and ribs, on every tower layer to full tower height. Additional areas of that material may retire under the remaining-demand rule.
+7. Print every retained area of each still-needed material on each layer. If fewer matching filaments are active than there are areas, use an active filament of the same type for the extras. If none are active but the type will return, use a matching filament to maintain continuity.
+8. Stop a non-wall material’s areas after its final use, not during temporary gaps. Determine final use from the complete original plate, including supports.
+9. Never stack different material types. Tools/colors of the same type can share areas across layers.
+10. End the tower at the last layer with a filament change, including changes between layers and changes involving supports. Initial tool selection alone is not a filament change.
+
+11. At each layer, determine the maximum number of distinct filaments of each material on that layer or any later model/support layer. Retain that many areas of the material, with at least one for the outer-wall material. Retire surplus areas permanently; do not shrink during a temporary dip when higher demand returns later. This applies to any starting area count, up to the supported 12 filaments.
+12. Keep each material’s areas grouped contiguously. When demand falls, retain the areas nearest the outer end walls along the direction in which the areas are stacked. All areas span the tower width. Resolve equal distances deterministically by lower area index. Retained areas stay at their original XY positions; retired areas end at their last required layer, without unsupported restarts or material replacement.
+13. Disable the slicer’s native tower in the generated project and mark that value as an explicit process override so the GUI retains it. This is a project-wide setting.
+14. Align support layers with model layers before automatic reference slicing and in the generated project, as Orca does for native towers. Disable Independent support layer height and retain the project override. This may round support Z gaps to the model layer grid. Do not lower nozzle layer-height limits to bypass mismatches. Preserve the original input project.
+
+Implementation preserves per-plate geometry settings, reference variable layer heights, combined brim and gussets, material isolation, XY-only placement, and the existing review-in-Orca workflow. Generation does not run the optional final G-code audit.

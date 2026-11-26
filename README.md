@@ -22,7 +22,7 @@ If a tower will not generate for a plate, manually slice the 3mf and check for s
 
 <img src="docs/images/PrimeTowerWizard_1_3_40.jpg" alt="Generated tower in OrcaSlicer, showing separate internal priming sections and rounded outer ribs" width="360">
 
-**The generated tower:** Each filament has an internal priming section, with different material types kept separate vertically. The outer wall and rounded ribs support the structure. Example above shows the tower in OrcaSlicer, where you can review and adjust its placement before the final slice.
+**The generated tower:** Internal priming areas are allocated by peak filament use within each material type, with different material types kept separate vertically. The outer wall and rounded ribs support the structure. Example above shows the tower in OrcaSlicer, where you can review and adjust its placement before the final slice.
 
 <img src="docs/images/Prime Tower Wizard.jpg" alt="Prime Tower Wizard project selection, Orca location and tower dimension controls" width="640">
 
@@ -32,7 +32,8 @@ If a tower will not generate for a plate, manually slice the 3mf and check for s
 
 | Application | Version | Purpose |
 | --- | --- | --- |
-| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.40/) | 1.3.40 | Generate a material-isolated tower project and open it in Orca for slicing. Version defaults slicer selection to version last used to save selected 3mf. |
+| [Prime Tower Wizard](apps/isolated-prime-tower-v1.3.46/) | 1.3.46 | Generate a material-isolated tower project and open it in Orca for slicing. Version defaults slicer selection to version last used to save selected 3mf. |
+| [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.40/) | 1.3.40 | Retained for rollback. |
 | [Previous Prime Tower Wizard](apps/isolated-prime-tower-v1.3.25/) | 1.3.25 | Previous version with out gussets, brim thickness setting, and original priming path. |
 | [Tower Speed Ramp](apps/tower-speed-ramp-v1.0.1/) | 1.0.1 | Optional Orca post-processing script that gradually increases extrusion speed while priming after tool pickup. |
 
@@ -76,7 +77,7 @@ Set-Location prime-tower-wizard
 1. Start the installer from the same Terminal window:
 
    ```sh
-   open "apps/isolated-prime-tower-v1.3.40/Install Prime Tower Wizard.command"
+   open "apps/isolated-prime-tower-v1.3.46/Install Prime Tower Wizard.command"
    ```
 
    Alternatively, open the downloaded folder in Finder and double-click that file.
@@ -92,7 +93,7 @@ Close any older wizard session before launching the installed version.
 Keep the application folders in a permanent location. On Windows, use `Start Prime Tower Wizard.bat` inside the wizard folder. On Linux, run `sh start-prime-tower-wizard.sh`, or start the wizard directly:
 
 ```sh
-python3 apps/isolated-prime-tower-v1.3.40/tower_wizard.py
+python3 apps/isolated-prime-tower-v1.3.46/tower_wizard.py
 ```
 
 For ramping, use the full path to your Python executable and the post-processing script as described below.
@@ -101,7 +102,7 @@ For ramping, use the full path to your Python executable and the post-processing
 
 1. Configure and save the original project in Orca, including materials, supports and layer heights.
 2. In the wizard, select the original 3MF, plate number and Orca executable. Set tower width, rib size, minimum priming volume and material options.
-3. Click **Slice & build tower**. If Orca command-line slicing fails, the guided reference G-code controls appear with the current settings retained.
+3. Click **Generate selected towers**. If Orca command-line slicing fails, the guided reference G-code controls appear with the current settings retained.
 4. The generated project opens in Orca/Snorca when selected. Review the plate and move the entire `IPT_ASSEMBLY` in XY if needed.
 5. Slice and inspect Orca’s preview before printing. Generation does not run a final slice or audit. The G-code audit is a separate optional command.
 
@@ -109,16 +110,38 @@ Regenerate after changing model geometry, materials or layer heights. Do not spl
 
 ## Tower behavior
 
-- One cross-braced priming section per actually used filament, up to 12 tools, with rounded cells and X-direction cross-ribs.
+- Cross-braced priming areas sized by peak per-layer filament use within each material type, up to 12 tools, with rounded cells and X-direction cross-ribs. Surplus areas retire as remaining demand decreases.
 - Separate material types stay in separate vertical sections. An active tool of the same material type can maintain an idle tool’s section to reduce swaps.
 - Rounded external ribs, an outer frame, reinforcing gussets, and a configurable zero-gap brim built into the assembly. Slicer brim is disabled for the tower only.
 - Configurable width, rib size, brim width, brim thickness, and minimum priming volume; defaults are 30 mm, 5 mm, 5 mm, 0.6 mm, and 5 mm³. Brim thickness accepts 0.5–1.5 mm.
-- Tower-only settings disable scarf seams for full-flow priming starts and suppress tiny junction paths. Model settings remain unchanged.
-- Automatic rigid frame-material selection with a manual override. The preference is a heuristic, not a measured strength guarantee.
+- Tower-only settings disable scarf seams for full-flow priming starts and suppress tiny junction paths. The original project remains unchanged; generated projects align support layers as described below.
+- Explicit selection of the outer-wall/rib filament for each plate. Selection is required before generation and resets when a new project is chosen.
 - Tower height ends at the last relevant reference pickup layer. Variable layer boundaries follow the reference print when compatible with the configured tools.
 - The audit checks tower visits after tool changes, material confinement, layer coverage and priming volume. It cannot inspect motion hidden inside firmware macros or certify physical collision clearance.
 
-The separate audit in v1.3.40 still rejects a model-brim-first sequence, even though a model brim can serve as initial priming. This does not block tower generation. G-code validation does not guarantee physical freedom from blobs or nozzle catches.
+The separate audit in v1.3.46 still rejects a model-brim-first sequence, even though a model brim can serve as initial priming. This does not block tower generation. G-code validation does not guarantee physical freedom from blobs or nozzle catches.
+
+## Updated Tower Generation Rules
+
+**Applies to version 1.3.46 and later.**
+
+1. Process only user-selected plates, independently. Count distinct filaments used by objects and supports, grouped by material type.
+2. If a selected plate uses exactly one filament throughout the print, generate no tower. Log: “Plate N: No prime tower needed—only one filament is used.” Do not report this for unselected plates.
+3. Require an explicit outer-wall/rib filament selection per plate. Do not infer it from the supports. Preserve it with that plate’s other parameters; reset it to unselected when a new project is chosen. The selected slot must be a used rigid filament, consistent with the existing frame constraints.
+4. Allocate each material type as many areas as the maximum number of its distinct filaments used on any single layer, including objects and supports. Apply this to the outer-wall material too.
+5. The initial footprint and first layer have at least two internal areas overall. With multiple filaments of one material type, provide at least two initial areas even when only one filament is active per layer. Higher layers may shrink to one active area, including when different filaments of the same type alternate between layers. Exactly one filament throughout the print still means no tower.
+6. Always retain at least one internal area for the chosen outer-wall material, together with its walls and ribs, on every tower layer to full tower height. Additional areas of that material may retire under the remaining-demand rule.
+7. Print every retained area of each still-needed material on each layer. If fewer matching filaments are active than there are areas, use an active filament of the same type for the extras. If none are active but the type will return, use a matching filament to maintain continuity.
+8. Stop a non-wall material’s areas after its final use, not during temporary gaps. Determine final use from the complete original plate, including supports.
+9. Never stack different material types. Tools/colors of the same type can share areas across layers.
+10. End the tower at the last layer with a filament change, including changes between layers and changes involving supports. Initial tool selection alone is not a filament change.
+
+11. At each layer, determine the maximum number of distinct filaments of each material on that layer or any later model/support layer. Retain that many areas of the material, with at least one for the outer-wall material. Retire surplus areas permanently; do not shrink during a temporary dip when higher demand returns later. This applies to any starting area count, up to the supported 12 filaments.
+12. Keep each material’s areas grouped contiguously. When demand falls, retain the areas nearest the outer end walls along the direction in which the areas are stacked. All areas span the tower width. Resolve equal distances deterministically by lower area index. Retained areas stay at their original XY positions; retired areas end at their last required layer, without unsupported restarts or material replacement.
+13. Disable the slicer’s native tower in the generated project and mark that value as an explicit process override so the GUI retains it. This is a project-wide setting.
+14. Align support layers with model layers before automatic reference slicing and in the generated project, as Orca does for native towers. Disable Independent support layer height and retain the project override. This may round support Z gaps to the model layer grid. Do not lower nozzle layer-height limits to bypass mismatches. Preserve the original input project.
+
+Implementation preserves per-plate geometry settings, reference variable layer heights, combined brim and gussets, material isolation, XY-only placement, and the existing review-in-Orca workflow. Generation does not run the optional final G-code audit.
 
 ## Optional volume-based ramping
 
@@ -136,15 +159,15 @@ The script audits before and after modification, replaces the working export onl
 
 For the Voron workflow, ramping applies at export/send; normal slicer preview retains the original speeds. Inspect the exported plain G-code to see modified speeds. Time estimates are not recalculated.
 
-See the [wizard guide](apps/isolated-prime-tower-v1.3.40/README.md) and [ramping guide](apps/tower-speed-ramp-v1.0.1/README.md) for detailed usage and limitations.
+See the [wizard guide](apps/isolated-prime-tower-v1.3.46/README.md) and [ramping guide](apps/tower-speed-ramp-v1.0.1/README.md) for detailed usage and limitations.
 
 ## Version
 
 Default slicer selection now matches version last used to save 3mf
 
-Version 1.3.40 displays plate-generation failure reasons in red and immediately clears previous logs and results when generation is restarted. Tower geometry is unchanged from 1.3.36.
+Version 1.3.40 displays plate-generation failure reasons in red and immediately clears previous logs and results when generation is restarted. Version 1.3.46 adds the material-area allocation and retirement rules below.
 
-Prime Tower Wizard v1.3.40 uses the stable installation folder `Tower_Wizard` and app name **Prime Tower Wizard.app**. Quit the running wizard before upgrading. The repository retains v1.3.38 and v1.3.25 alongside v1.3.40 for rollback; Tower Speed Ramp is versioned independently.
+Prime Tower Wizard v1.3.46 uses the stable installation folder `Tower_Wizard` and app name **Prime Tower Wizard.app**. Quit the running wizard before upgrading. The repository retains v1.3.40 and v1.3.25 alongside v1.3.46 for rollback; Tower Speed Ramp is versioned independently.
 
 Added support for Snapmaker Orca alongside Mainline Orca, with easy slicer selection.
 
